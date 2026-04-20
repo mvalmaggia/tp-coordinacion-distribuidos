@@ -32,25 +32,29 @@ class SumFilter:
             MOM_HOST, SUM_CONTROL_EXCHANGE, [EOF_BROADCAST]
         )
 
+        self.lock = threading.Lock()
+
     def _process_data(self, fruit, amount):
         logging.info(f"Process data")
-        self.amount_by_fruit[fruit] = self.amount_by_fruit.get(
-            fruit, fruit_item.FruitItem(fruit, 0)
-        ) + fruit_item.FruitItem(fruit, int(amount))
+        with self.lock:
+            self.amount_by_fruit[fruit] = self.amount_by_fruit.get(
+                fruit, fruit_item.FruitItem(fruit, 0)
+            ) + fruit_item.FruitItem(fruit, int(amount))
 
     def _process_eof(self):
         logging.info(f"Broadcasting data messages")
-        for final_fruit_item in self.amount_by_fruit.values():
-            for data_output_exchange in self.data_output_exchanges:
-                data_output_exchange.send(
-                    message_protocol.internal.serialize(
-                        [final_fruit_item.fruit, final_fruit_item.amount]
+        with self.lock:
+            for final_fruit_item in self.amount_by_fruit.values():
+                for data_output_exchange in self.data_output_exchanges:
+                    data_output_exchange.send(
+                        message_protocol.internal.serialize(
+                            [final_fruit_item.fruit, final_fruit_item.amount]
+                        )
                     )
-                )
 
-        logging.info(f"Broadcasting EOF message")
-        for data_output_exchange in self.data_output_exchanges:
-            data_output_exchange.send(message_protocol.internal.serialize([]))
+            logging.info(f"Broadcasting EOF message")
+            for data_output_exchange in self.data_output_exchanges:
+                data_output_exchange.send(message_protocol.internal.serialize([]))
 
 
     def process_data_messsage(self, message, ack, nack):
@@ -62,7 +66,25 @@ class SumFilter:
         ack()
 
     def start(self):
+        eof_control_thread = threading.Thread(target=self._listen_for_eof)
+        eof_control_thread.start()
+
         self.input_queue.start_consuming(self.process_data_messsage)
+
+        eof_control_thread.join()
+
+    def _listen_for_eof(self):
+        self.control_exchange.start_consuming(self._process_eof_message)
+
+    def _process_eof_message(self, message, ack, nack):
+        logging.info("Received EOF message.")
+
+        self._process_eof()
+
+        self.input_queue.stop_consuming()
+        self.control_exchange.stop_consuming()
+
+        ack()
 
 def main():
     logging.basicConfig(level=logging.INFO)
