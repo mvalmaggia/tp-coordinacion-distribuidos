@@ -36,33 +36,32 @@ class SumFilter:
 
     def _process_data(self, fruit, amount):
         logging.info(f"Process data")
-        with self.lock:
-            self.amount_by_fruit[fruit] = self.amount_by_fruit.get(
-                fruit, fruit_item.FruitItem(fruit, 0)
-            ) + fruit_item.FruitItem(fruit, int(amount))
+        self.amount_by_fruit[fruit] = self.amount_by_fruit.get(
+            fruit, fruit_item.FruitItem(fruit, 0)
+        ) + fruit_item.FruitItem(fruit, int(amount))
 
     def _process_eof(self):
         logging.info(f"Broadcasting data messages")
-        with self.lock:
-            for final_fruit_item in self.amount_by_fruit.values():
-                for data_output_exchange in self.data_output_exchanges:
-                    data_output_exchange.send(
-                        message_protocol.internal.serialize(
-                            [final_fruit_item.fruit, final_fruit_item.amount]
-                        )
-                    )
-
-            logging.info(f"Broadcasting EOF message")
+        for final_fruit_item in self.amount_by_fruit.values():
             for data_output_exchange in self.data_output_exchanges:
-                data_output_exchange.send(message_protocol.internal.serialize([]))
+                data_output_exchange.send(
+                    message_protocol.internal.serialize(
+                        [final_fruit_item.fruit, final_fruit_item.amount]
+                    )
+                )
+
+        logging.info(f"Broadcasting EOF message")
+        for data_output_exchange in self.data_output_exchanges:
+            data_output_exchange.send(message_protocol.internal.serialize([]))
 
 
     def process_data_messsage(self, message, ack, nack):
         fields = message_protocol.internal.deserialize(message)
-        if len(fields) == 2:
-            self._process_data(*fields)
-        else:
-            self._process_eof(*fields)
+        with self.lock:
+            if len(fields) == 2:
+                self._process_data(*fields)
+            else:
+                self.control_exchange.send(message_protocol.internal.serialize([]))
         ack()
 
     def start(self):
