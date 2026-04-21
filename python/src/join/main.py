@@ -36,16 +36,18 @@ class JoinFilter:
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
+        logging.info(f"Deserialized message: {fields}")
         if len(fields) == 2:
             self._process_data(*fields)
         else:
             self.eofs_received += 1
             if self.eofs_received == SUM_AMOUNT:
+                logging.info(f"Received all EOFs: {self.eofs_received}")
                 self._process_eof()
         ack()
 
     def _process_data(self, fruit_top):
-        logging.info("Process data")
+        logging.info("Process data: {fruit_top}")
         for fruit, amount in fruit_top:
             self.all_fruits.append(fruit_item.FruitItem(fruit, amount))
    
@@ -56,14 +58,15 @@ class JoinFilter:
         final_top_items = self.all_fruits[:TOP_SIZE]
         
         final_top = [(item.fruit, item.amount) for item in final_top_items]
+        logging.info(f"Final top fruits: {final_top}")
         self.output_queue.send(
             message_protocol.internal.serialize(final_top)
         )
-        self.output_queue.send(
-            message_protocol.internal.serialize(
-                []
-             )
-        )
+        # self.output_queue.send(
+        #     message_protocol.internal.serialize(
+        #         []
+        #      )
+        # )
 
         self.input_queue.stop_consuming()
     
