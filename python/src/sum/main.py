@@ -108,7 +108,7 @@ class SumFilter:
 
                 self._process_eof()
 
-                self.input_queue.stop_consuming()
+                # self.input_queue.stop_consuming()
                 self.control_exchange.stop_consuming()
 
         ack()

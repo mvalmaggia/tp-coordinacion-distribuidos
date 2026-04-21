@@ -26,22 +26,22 @@ class JoinFilter:
         self.all_fruits = []
         self.eofs_received = 0
 
-    def process_messsage(self, message, ack, nack):
-        logging.info("Received top")
-        fruit_top = message_protocol.internal.deserialize(message)
-        for fruit, amount in fruit_top:
-            self.partial_sums[fruit] = self.partial_sums.get(fruit, 0) + amount
-        ack()
+    # def process_messsage(self, message, ack, nack):
+    #     logging.info("Received top")
+    #     fruit_top = message_protocol.internal.deserialize(message)
+    #     for fruit, amount in fruit_top:
+    #         self.partial_sums[fruit] = self.partial_sums.get(fruit, 0) + amount
+    #     ack()
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
         logging.info(f"Deserialized message: {fields}")
-        if len(fields) == 2:
-            self._process_data(*fields)
+        if len(fields) > 0:
+            self._process_data(fields)
         else:
             self.eofs_received += 1
-            if self.eofs_received == SUM_AMOUNT:
+            if self.eofs_received == AGGREGATION_AMOUNT:
                 logging.info(f"Received all EOFs: {self.eofs_received}")
                 self._process_eof()
         ack()
@@ -62,11 +62,11 @@ class JoinFilter:
         self.output_queue.send(
             message_protocol.internal.serialize(final_top)
         )
-        # self.output_queue.send(
-        #     message_protocol.internal.serialize(
-        #         []
-        #      )
-        # )
+        self.output_queue.send(
+            message_protocol.internal.serialize(
+                []
+             )
+        )
 
         self.input_queue.stop_consuming()
     
