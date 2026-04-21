@@ -23,7 +23,7 @@ class JoinFilter:
             MOM_HOST, OUTPUT_QUEUE
         )
 
-        self.partial_sums = {}
+        self.all_fruits = []
         self.eofs_received = 0
 
     def process_messsage(self, message, ack, nack):
@@ -47,18 +47,26 @@ class JoinFilter:
     def _process_data(self, fruit_top):
         logging.info("Process data")
         for fruit, amount in fruit_top:
-            self.partial_sums[fruit] = self.partial_sums.get(fruit, 0) + amount
-
+            self.all_fruits.append(fruit_item.FruitItem(fruit, amount))
+   
     def _process_eof(self):
         logging.info("Sending data messages")
-        for fruit, amount in self.partial_sums.items():
-            self.output_queue.send(
-                message_protocol.internal.serialize(
-                    [fruit, amount]
-                )
-            )
-        #aca ver como mandar fruit top, en vez de mandar fruta por fruta, mandar una lista con las frutas y sus cantidades, y que el join se encargue de armar el top
+        # Ordeno las frutas por cantidad, de mayor a menor
+        self.all_fruits.sort(key=lambda item: item.amount, reverse=True)
+        final_top_items = self.all_fruits[:TOP_SIZE]
+        
+        final_top = [(item.fruit, item.amount) for item in final_top_items]
+        self.output_queue.send(
+            message_protocol.internal.serialize(final_top)
+        )
+        self.output_queue.send(
+            message_protocol.internal.serialize(
+                []
+             )
+        )
 
+        self.input_queue.stop_consuming()
+    
     def start(self):
         self.input_queue.start_consuming(self.process_messsage)
 
