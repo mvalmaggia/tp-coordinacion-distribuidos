@@ -26,6 +26,7 @@ class SumFilter:
                 MOM_HOST, AGGREGATION_PREFIX, [f"{AGGREGATION_PREFIX}_{i}"]
             )
             self.data_output_exchanges.append(data_output_exchange)
+        
         self.amount_by_fruit = {}
 
         self.control_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
@@ -33,6 +34,7 @@ class SumFilter:
         )
 
         self.lock = threading.Lock()
+        self.eof_handled = False
 
     def _process_data(self, fruit, amount):
         logging.info(f"Process data")
@@ -57,7 +59,7 @@ class SumFilter:
                     [final_fruit_item.fruit, final_fruit_item.amount]
                 )
             )
-            
+
         logging.info(f"Broadcasting EOF message")
         for data_output_exchange in self.data_output_exchanges:
             data_output_exchange.send(message_protocol.internal.serialize([]))
@@ -84,14 +86,19 @@ class SumFilter:
         self.control_exchange.start_consuming(self._process_eof_message)
 
     def _process_eof_message(self, message, ack, nack):
-        logging.info("Received EOF message.")
+        with self.lock:
+            if not self.eof_handled:
+                self.eof_handled = True
+                logging.info("Received EOF message.")
 
-        self._process_eof()
+                self._process_eof()
 
-        self.input_queue.stop_consuming()
-        self.control_exchange.stop_consuming()
+                self.input_queue.stop_consuming()
+                self.control_exchange.stop_consuming()
 
         ack()
+
+        
 
 def main():
     logging.basicConfig(level=logging.INFO)
