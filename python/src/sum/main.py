@@ -43,7 +43,14 @@ class SumFilter:
         ) + fruit_item.FruitItem(fruit, int(amount))
 
     def _process_eof(self):
-        logging.info(f"Broadcasting data messages")
+        logging.info(f"Routing data messages")
+        data_output_exchanges = []
+        for i in range(AGGREGATION_AMOUNT):
+            exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
+                MOM_HOST, AGGREGATION_PREFIX, [f"{AGGREGATION_PREFIX}_{i}"]
+            )
+            data_output_exchanges.append(exchange)
+
         for final_fruit_item in self.amount_by_fruit.values():
             
             first_letter = final_fruit_item.fruit[0]
@@ -53,7 +60,7 @@ class SumFilter:
             # Uso modulo para distribuir las frutas entre los filtros de agregación
             target_idx = letter_number % AGGREGATION_AMOUNT
             
-            target_exchange = self.data_output_exchanges[target_idx]
+            target_exchange = data_output_exchanges[target_idx]
             target_exchange.send(
                 message_protocol.internal.serialize(
                     [final_fruit_item.fruit, final_fruit_item.amount]
@@ -68,6 +75,10 @@ class SumFilter:
     def process_data_messsage(self, message, ack, nack):
         fields = message_protocol.internal.deserialize(message)
         with self.lock:
+            if self.eof_handled:
+                logging.info("Received data message after EOF. Ignoring.")
+                ack()
+                return
             if len(fields) == 2:
                 self._process_data(*fields)
             else:
@@ -83,8 +94,12 @@ class SumFilter:
         eof_control_thread.join()
 
     def _listen_for_eof(self):
-        self.control_exchange.start_consuming(self._process_eof_message)
+        control_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
+            MOM_HOST, SUM_CONTROL_EXCHANGE, [EOF_BROADCAST]
+        )
 
+        control_exchange.start_consuming(self._process_eof_message)
+        
     def _process_eof_message(self, message, ack, nack):
         with self.lock:
             if not self.eof_handled:
