@@ -25,6 +25,8 @@ class AggregationFilter:
         )
         self.fruit_top = []
 
+        self.eofs_received = 0
+
     def _process_data(self, fruit, amount):
         logging.info("Processing data message")
         for i in range(len(self.fruit_top)):
@@ -54,7 +56,9 @@ class AggregationFilter:
         if len(fields) == 2:
             self._process_data(*fields)
         else:
-            self._process_eof()
+            self.eofs_received += 1
+            if self.eofs_received == SUM_AMOUNT:
+                self._process_eof()
         ack()
 
     def start(self):

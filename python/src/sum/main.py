@@ -43,13 +43,21 @@ class SumFilter:
     def _process_eof(self):
         logging.info(f"Broadcasting data messages")
         for final_fruit_item in self.amount_by_fruit.values():
-            for data_output_exchange in self.data_output_exchanges:
-                data_output_exchange.send(
-                    message_protocol.internal.serialize(
-                        [final_fruit_item.fruit, final_fruit_item.amount]
-                    )
+            
+            first_letter = final_fruit_item.fruit[0]
+            
+            letter_number = ord(first_letter) - 97
+            
+            # Uso modulo para distribuir las frutas entre los filtros de agregación
+            target_idx = letter_number % AGGREGATION_AMOUNT
+            
+            target_exchange = self.data_output_exchanges[target_idx]
+            target_exchange.send(
+                message_protocol.internal.serialize(
+                    [final_fruit_item.fruit, final_fruit_item.amount]
                 )
-
+            )
+            
         logging.info(f"Broadcasting EOF message")
         for data_output_exchange in self.data_output_exchanges:
             data_output_exchange.send(message_protocol.internal.serialize([]))
