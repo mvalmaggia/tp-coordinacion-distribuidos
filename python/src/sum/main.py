@@ -20,29 +20,29 @@ class SumFilter:
         self.input_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, INPUT_QUEUE
         )
-        self.data_output_exchanges = []
-        for i in range(AGGREGATION_AMOUNT):
-            data_output_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
-                MOM_HOST, AGGREGATION_PREFIX, [f"{AGGREGATION_PREFIX}_{i}"]
-            )
-            self.data_output_exchanges.append(data_output_exchange)
         
-        self.amount_by_fruit = {}
+        self.client_amounts = {}
 
         self.control_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
             MOM_HOST, SUM_CONTROL_EXCHANGE, [EOF_BROADCAST]
         )
 
         self.lock = threading.Lock()
-        self.eof_handled = False
+        self.eof_handled_by_client = {}
 
-    def _process_data(self, fruit, amount):
-        logging.info(f"Process data")
-        self.amount_by_fruit[fruit] = self.amount_by_fruit.get(
-            fruit, fruit_item.FruitItem(fruit, 0)
-        ) + fruit_item.FruitItem(fruit, int(amount))
+    def _process_data(self, client_id, fruit, amount):
+        logging.info(f"Process data for client {client_id}")
+        
+        if client_id not in self.client_amounts:
+            self.client_amounts[client_id] = {}
 
-    def _process_eof(self):
+        client_dict = self.client_amounts[client_id]
+        if fruit in client_dict:
+            client_dict[fruit].amount += int(amount)
+        else:
+            client_dict[fruit] = fruit_item.FruitItem(fruit, int(amount))
+
+    def _process_eof(self, client_id):
         logging.info(f"Routing data messages")
         data_output_exchanges = []
         for i in range(AGGREGATION_AMOUNT):
@@ -51,38 +51,41 @@ class SumFilter:
             )
             data_output_exchanges.append(exchange)
 
-        for final_fruit_item in self.amount_by_fruit.values():
-            
-            first_letter = final_fruit_item.fruit[0]
-            
-            letter_number = ord(first_letter) - 97
-            
-            # Uso modulo para distribuir las frutas entre los filtros de agregación
-            target_idx = letter_number % AGGREGATION_AMOUNT
-            
-            target_exchange = data_output_exchanges[target_idx]
-            target_exchange.send(
-                message_protocol.internal.serialize(
-                    [final_fruit_item.fruit, final_fruit_item.amount]
-                )
-            )
+        if client_id in self.client_amounts:
+            client_fruits = self.client_amounts[client_id]
+            for fruit_item in client_fruits:
+                first_letter = fruit_item.fruit[0]
+                letter_number = ord(first_letter) - ord('a')
 
-        logging.info(f"Broadcasting EOF message")
+                target_idx = letter_number % AGGREGATION_AMOUNT
+            
+                target_exchange = data_output_exchanges[target_idx]
+                target_exchange.send(
+                    message_protocol.internal.serialize(
+                        [client_id, fruit_item.fruit, fruit_item.amount]
+                    )
+                )
+            
+            del self.client_amounts[client_id]
+
+        logging.info(f"Broadcasting EOF message for client {client_id}")
         for data_output_exchange in self.data_output_exchanges:
-            data_output_exchange.send(message_protocol.internal.serialize([]))
+            data_output_exchange.send(message_protocol.internal.serialize([client_id]))
 
 
     def process_data_messsage(self, message, ack, nack):
         fields = message_protocol.internal.deserialize(message)
         with self.lock:
-            if self.eof_handled:
-                logging.info("Received data message after EOF. Ignoring.")
-                ack()
-                return
-            if len(fields) == 2:
-                self._process_data(*fields)
-            else:
-                self.control_exchange.send(message_protocol.internal.serialize([]))
+            if len(fields) == 3:
+                client_id, fruit, amount = fields
+                if self.eof_handled_by_client.get(client_id, False):
+                    logging.info(f"Received data for finished client {client_id}. Ignoring.")
+                    ack()
+                    return
+                self._process_data(client_id, fruit, amount)
+            elif len(fields) == 1:
+                client_id = fields[0]
+                self.control_exchange.send(message_protocol.internal.serialize([client_id]))
         ack()
 
     def start(self):
@@ -101,15 +104,15 @@ class SumFilter:
         control_exchange.start_consuming(self._process_eof_message)
         
     def _process_eof_message(self, message, ack, nack):
+        fields = message_protocol.internal.deserialize(message)
+        client_id = fields[0]
+
         with self.lock:
-            if not self.eof_handled:
-                self.eof_handled = True
-                logging.info("Received EOF message.")
+            if not self.eof_handled_by_client.get(client_id, False):
+                self.eof_handled_by_client[client_id] = True
+                logging.info(f"Received EOF message for client {client_id}.")
 
-                self._process_eof()
-
-                # self.input_queue.stop_consuming()
-                self.control_exchange.stop_consuming()
+                self._process_eof(client_id)
 
         ack()
 
