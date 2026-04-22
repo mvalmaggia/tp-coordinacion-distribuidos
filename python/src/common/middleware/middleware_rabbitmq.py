@@ -12,7 +12,7 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
         self.channel.queue_declare(queue=queue_name)
         self.queue_name = queue_name
         
-    def send(self, message):
+    def send(self, message, routing_key=None):
         try:
             self.channel.basic_publish(exchange='', routing_key=self.queue_name, body=message)
         except (AMQPConnectionError, AMQPChannelError):
@@ -56,7 +56,7 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
         try:
             if self.connection.is_open:
                 self.connection.close()
-        except:
+        except Exception:
             raise MessageMiddlewareCloseError("Failed to close the connection properly.")
 
 class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
@@ -74,10 +74,13 @@ class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
         for routing_key in routing_keys:
             self.channel.queue_bind(exchange=exchange_name, queue=self.queue_name, routing_key=routing_key)
 
-    def send(self, message):
+    def send(self, message, routing_key=None):
         try:
-            for routing_key in self.routing_keys:
+            if routing_key:
                 self.channel.basic_publish(exchange=self.exchange_name, routing_key=routing_key, body=message)
+            else:
+                for rk in self.routing_keys:
+                    self.channel.basic_publish(exchange=self.exchange_name, routing_key=rk, body=message)
         except (AMQPConnectionError, AMQPChannelError):
             raise MessageMiddlewareDisconnectedError("Connection lost while sending message.")
         except Exception as e:
@@ -113,5 +116,5 @@ class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
         try:
             if self.connection.is_open:
                 self.connection.close()
-        except:
+        except Exception:
             raise MessageMiddlewareCloseError("Failed to close the connection properly.")
