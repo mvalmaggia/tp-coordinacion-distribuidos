@@ -23,39 +23,36 @@ class JoinFilter:
             MOM_HOST, OUTPUT_QUEUE
         )
 
-        self.all_fruits = []
-        self.eofs_received = 0
-
-    # def process_messsage(self, message, ack, nack):
-    #     logging.info("Received top")
-    #     fruit_top = message_protocol.internal.deserialize(message)
-    #     for fruit, amount in fruit_top:
-    #         self.partial_sums[fruit] = self.partial_sums.get(fruit, 0) + amount
-    #     ack()
+        self.fruits_by_client = {}
+        self.eofs_received_by_client = {}
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
         logging.info(f"Deserialized message: {fields}")
-        if len(fields) > 0:
+        if len(fields) > 1:
             self._process_data(fields)
         else:
-            self.eofs_received += 1
-            if self.eofs_received == AGGREGATION_AMOUNT:
-                logging.info(f"Received all EOFs: {self.eofs_received}")
-                self._process_eof()
+            client_id = fields[0]
+            self.eofs_received_by_client[client_id] += 1
+            if self.eofs_received_by_client[client_id] == AGGREGATION_AMOUNT:
+                logging.info(f"Received all EOFs: {len(self.eofs_received_by_client)}")
+                self._process_eof(client_id)
         ack()
 
-    def _process_data(self, fruit_top):
+    def _process_data(self, client_id, fruit_top):
         logging.info("Process data: {fruit_top}")
-        for fruit, amount in fruit_top:
-            self.all_fruits.append(fruit_item.FruitItem(fruit, amount))
+        # for fruit, amount in fruit_top:
+        #     self.all_fruits.append(fruit_item.FruitItem(fruit, amount))
    
-    def _process_eof(self):
+
+    def _process_eof(self, client_id):
+        logging.info(f"Processing EOF for client {client_id}")
         logging.info("Sending data messages")
         # Ordeno las frutas por cantidad, de mayor a menor
-        self.all_fruits.sort(key=lambda item: item.amount, reverse=True)
-        final_top_items = self.all_fruits[:TOP_SIZE]
+        self.fruits_by_client[client_id].sort(key=lambda item: item.amount, reverse=True)
+        # self.all_fruits.sort(key=lambda item: item.amount, reverse=True)
+        final_top_items = self.fruits_by_client[client_id][:TOP_SIZE]
         
         final_top = [(item.fruit, item.amount) for item in final_top_items]
         logging.info(f"Final top fruits: {final_top}")

@@ -53,7 +53,7 @@ class SumFilter:
 
         if client_id in self.client_amounts:
             client_fruits = self.client_amounts[client_id]
-            for fruit_item in client_fruits:
+            for fruit_item in client_fruits.values():
                 first_letter = fruit_item.fruit[0]
                 letter_number = ord(first_letter) - ord('a')
 
@@ -69,12 +69,13 @@ class SumFilter:
             del self.client_amounts[client_id]
 
         logging.info(f"Broadcasting EOF message for client {client_id}")
-        for data_output_exchange in self.data_output_exchanges:
+        for data_output_exchange in data_output_exchanges:
             data_output_exchange.send(message_protocol.internal.serialize([client_id]))
 
 
     def process_data_messsage(self, message, ack, nack):
         fields = message_protocol.internal.deserialize(message)
+        logging.info(f"Deserialized message: {fields}")
         with self.lock:
             if len(fields) == 3:
                 client_id, fruit, amount = fields
