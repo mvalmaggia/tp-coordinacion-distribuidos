@@ -1,5 +1,6 @@
 import os
 import logging
+import signal
 import threading
 
 from common import middleware, message_protocol, fruit_item
@@ -27,6 +28,11 @@ class SumFilter:
             MOM_HOST, SUM_CONTROL_EXCHANGE, [EOF_BROADCAST]
         )
 
+        self.data_output_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
+            MOM_HOST, AGGREGATION_PREFIX,
+            [f"{AGGREGATION_PREFIX}_{i}" for i in range(AGGREGATION_AMOUNT)]
+        )
+
         self.lock = threading.Lock()
         self.eof_handled_by_client = {}
 
@@ -39,39 +45,37 @@ class SumFilter:
 
         client_dict = self.client_amounts[client_id]
         if fruit in client_dict.keys():
-            client_dict[fruit].amount += int(amount)
+            client_dict[fruit] = client_dict[fruit] + fruit_item.FruitItem(fruit, int(amount))
         else:
             client_dict[fruit] = fruit_item.FruitItem(fruit, int(amount))
 
     def _process_eof(self, client_id):
         # logging.info(f"Routing data messages")
-        data_output_exchanges = []
-        for i in range(AGGREGATION_AMOUNT):
-            exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
-                MOM_HOST, AGGREGATION_PREFIX, [f"{AGGREGATION_PREFIX}_{i}"]
-            )
-            data_output_exchanges.append(exchange)
 
         if client_id in self.client_amounts:
             client_fruits = self.client_amounts[client_id]
-            for fruit_item in client_fruits.values():
-                first_letter = fruit_item.fruit[0]
+            for item in client_fruits.values():
+                first_letter = item.fruit[0]
                 letter_number = ord(first_letter) - ord('a')
 
                 target_idx = letter_number % AGGREGATION_AMOUNT
-                # logging.info(f"Sending data message for client {client_id}, fruit {fruit_item.fruit}, amount {fruit_item.amount} to exchange {AGGREGATION_PREFIX}_{target_idx}")
-                target_exchange = data_output_exchanges[target_idx]
-                target_exchange.send(
+                target_routing_key = f"{AGGREGATION_PREFIX}_{target_idx}"
+                # logging.info(f"Sending data message for client {client_id}, fruit {item.fruit}, amount {item.amount} to exchange {target_routing_key}")
+                self.data_output_exchange.send(
                     message_protocol.internal.serialize(
-                        [client_id, fruit_item.fruit, fruit_item.amount]
-                    )
+                        [client_id, item.fruit, item.amount]
+                    ),
+                    routing_key=target_routing_key
                 )
             
             del self.client_amounts[client_id]
 
         # logging.info(f"Broadcasting EOF message for client {client_id}")
-        for data_output_exchange in data_output_exchanges:
-            data_output_exchange.send(message_protocol.internal.serialize([client_id]))
+        for i in range(AGGREGATION_AMOUNT):
+            self.data_output_exchange.send(
+                message_protocol.internal.serialize([client_id]),
+                routing_key=f"{AGGREGATION_PREFIX}_{i}"
+            )
 
 
     def process_data_messsage(self, message, ack, nack):
@@ -120,6 +124,15 @@ class SumFilter:
 def main():
     logging.basicConfig(level=logging.INFO)
     sum_filter = SumFilter()
+
+    def handle_sigterm(signum, frame):
+        logging.info("Received SIGTERM signal")
+        sum_filter.input_queue.stop_consuming()
+        sum_filter.input_queue.close()
+        sum_filter.control_exchange.close()
+        sum_filter.data_output_exchange.close()
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
     sum_filter.start()
     return 0
 

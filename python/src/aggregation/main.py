@@ -1,6 +1,7 @@
 import os
 import logging
 import bisect
+import signal
 
 from common import middleware, message_protocol, fruit_item
 
@@ -44,7 +45,7 @@ class AggregationFilter:
 
     def _process_eof(self, client_id):
         logging.info(f"Received all EOFs for client {client_id}. Sending top fruits.")
-        self.fruit_top_by_client[client_id].sort(key=lambda item: item.amount, reverse=True)
+        self.fruit_top_by_client[client_id].sort(reverse=True)
         logging.info(f"All fruits received for client {client_id}: {[ (item.fruit, item.amount) for item in self.fruit_top_by_client[client_id] ]}")
         fruit_chunk = self.fruit_top_by_client[client_id][:TOP_SIZE]
         
@@ -84,6 +85,14 @@ class AggregationFilter:
 def main():
     logging.basicConfig(level=logging.INFO)
     aggregation_filter = AggregationFilter()
+
+    def handle_sigterm(signum, frame):
+        logging.info("Received SIGTERM signal")
+        aggregation_filter.input_exchange.stop_consuming()
+        aggregation_filter.input_exchange.close()
+        aggregation_filter.output_queue.close()
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
     aggregation_filter.start()
     return 0
 
