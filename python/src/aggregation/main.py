@@ -23,20 +23,25 @@ class AggregationFilter:
         self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, OUTPUT_QUEUE
         )
-        self.fruit_top_by_client = {}
 
+        self.fruit_top_by_client = {}
         self.eofs_received_by_client = {}
 
     def _process_data(self, client_id, fruit, amount):
-        logging.info("Processing data message")
+        logging.info(f"Processing data message from client {client_id}")
         if client_id not in self.fruit_top_by_client:
             self.fruit_top_by_client[client_id] = []
         
-        client_dict = self.fruit_top_by_client[client_id]
-        if fruit in client_dict:
-            client_dict[fruit].amount += int(amount)
-        else:
-            client_dict[fruit] = fruit_item.FruitItem(fruit, int(amount))
+        client_list = self.fruit_top_by_client[client_id]
+
+        for i in range(len(client_list)):
+            if client_list[i].fruit == fruit:
+                client_list[i] = client_list[i] + fruit_item.FruitItem(
+                    fruit, int(amount)
+                )
+                return
+        bisect.insort(client_list, fruit_item.FruitItem(fruit, int(amount)))
+
 
     def _process_eof(self, client_id):
         logging.info("Received EOF")
@@ -51,7 +56,7 @@ class AggregationFilter:
         self.output_queue.send(message_protocol.internal.serialize(client_id, fruit_top))
 
     def _process_eof(self, client_id):
-        logging.info("Received EOF")
+        logging.info(f"Received all EOFs for client {client_id}. Sending top fruits.")
         fruit_chunk = list(self.fruit_top_by_client[client_id][-TOP_SIZE:])
         fruit_chunk.reverse()
         fruit_top = list(
@@ -62,7 +67,9 @@ class AggregationFilter:
         )
         self.output_queue.send(message_protocol.internal.serialize(fruit_top))
         self.output_queue.send(message_protocol.internal.serialize([]))
-        del self.fruit_top
+        
+        del self.fruit_top_by_client[client_id]
+        del self.eofs_received_by_client[client_id]
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
@@ -72,10 +79,12 @@ class AggregationFilter:
             self._process_data(*fields)
         else:
             client_id = fields[0]
-            if self.eofs_received_by_client.get(client_id, 0) == 0:
-                self.eofs_received_by_client[client_id] = 1
+
+            self.eofs_received_by_client[client_id] = self.eofs_received_by_client.get(client_id, 0) + 1
+            
             if self.eofs_received_by_client[client_id] == SUM_AMOUNT:
                 self._process_eof(client_id)
+            
         ack()
 
     def start(self):
