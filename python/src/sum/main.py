@@ -32,7 +32,8 @@ class SumFilter:
 
     def _process_data(self, client_id, fruit, amount):
         # logging.info(f"Process data for client {client_id}")
-        
+        fruit = fruit.lower()
+
         if client_id not in self.client_amounts:
             self.client_amounts[client_id] = {}
 
