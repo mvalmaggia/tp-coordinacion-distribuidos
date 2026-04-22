@@ -116,7 +116,6 @@ class SumFilter:
 
         ack()
 
-        
 
 def main():
     logging.basicConfig(level=logging.INFO)

@@ -23,23 +23,36 @@ class AggregationFilter:
         self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, OUTPUT_QUEUE
         )
-        self.fruit_top = []
+        self.fruit_top_by_client = {}
 
-        self.eofs_received = 0
+        self.eofs_received_by_client = {}
 
-    def _process_data(self, fruit, amount):
+    def _process_data(self, client_id, fruit, amount):
         logging.info("Processing data message")
-        for i in range(len(self.fruit_top)):
-            if self.fruit_top[i].fruit == fruit:
-                self.fruit_top[i] = self.fruit_top[i] + fruit_item.FruitItem(
-                    fruit, amount
-                )
-                return
-        bisect.insort(self.fruit_top, fruit_item.FruitItem(fruit, amount))
+        if client_id not in self.fruit_top_by_client:
+            self.fruit_top_by_client[client_id] = []
+        
+        client_dict = self.fruit_top_by_client[client_id]
+        if fruit in client_dict:
+            client_dict[fruit].amount += int(amount)
+        else:
+            client_dict[fruit] = fruit_item.FruitItem(fruit, int(amount))
 
-    def _process_eof(self):
+    def _process_eof(self, client_id):
         logging.info("Received EOF")
-        fruit_chunk = list(self.fruit_top[-TOP_SIZE:])
+        fruit_chunk = list(self.fruit_top_by_client[client_id][-TOP_SIZE:])
+        fruit_chunk.reverse()
+        fruit_top = list(
+            map(
+                lambda fruit_item: (fruit_item.fruit, fruit_item.amount),
+                fruit_chunk,
+            )
+        )
+        self.output_queue.send(message_protocol.internal.serialize(client_id, fruit_top))
+
+    def _process_eof(self, client_id):
+        logging.info("Received EOF")
+        fruit_chunk = list(self.fruit_top_by_client[client_id][-TOP_SIZE:])
         fruit_chunk.reverse()
         fruit_top = list(
             map(
@@ -55,12 +68,14 @@ class AggregationFilter:
         logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
         logging.info(f"Deserialized message: {fields}")
-        if len(fields) == 2:
+        if len(fields) == 3:
             self._process_data(*fields)
         else:
-            self.eofs_received += 1
-            if self.eofs_received == SUM_AMOUNT:
-                self._process_eof()
+            client_id = fields[0]
+            if self.eofs_received_by_client.get(client_id, 0) == 0:
+                self.eofs_received_by_client[client_id] = 1
+            if self.eofs_received_by_client[client_id] == SUM_AMOUNT:
+                self._process_eof(client_id)
         ack()
 
     def start(self):

@@ -62,11 +62,6 @@ class JoinFilter:
         self.output_queue.send(
             message_protocol.internal.serialize(final_top)
         )
-        self.output_queue.send(
-            message_protocol.internal.serialize(
-                []
-             )
-        )
 
         self.input_queue.stop_consuming()
     
