@@ -1,5 +1,39 @@
 # Trabajo Práctico - Coordinación
 
+# Informe
+
+## Coordinacion de instancias de Sum
+
+Todas las instancias de Sum comparten una cola de entrada, input_queue, para la cual el middleware distribuye los mensajes de fruta-cantidad de manera round robin.
+
+Cada instancia mantiene un total por fruta para cada cliente. Cuando recibe un mensaje de EOF, (el client_id solo), utiliza un exchange de "control" y realiza un broadcast a todas las instancias de Sum. Luego, todas reciben el EOF y utilizan un flag eof_handled_by_client para evitar duplicados. 
+
+La instancia que procesa el EOF envía los totales acumulados a las instancias de Aggregation, distribuyendo los datos por la primera letra de cada fruta (`ord(letra) % AGGREGATION_AMOUNT`) utilizando routing keys específicas. Luego envía un mensaje EOF a cada Aggregator.
+
+## Coordinación de instancias de Aggregation
+
+Cada instancia de Aggregation escucha un exchange con un routing key propio (`AGGREGATION_PREFIX_{ID}`), de modo que recibe solo las frutas que le corresponden según el criterio de distribución del Sum.
+
+Para detectar el fin del envio de una instancia de SUM, cada Aggregator cuenta los EOFs recibidos por cliente. Como cada instancia de Sum envía un EOF a cada Aggregator, el Aggregator espera recibir `SUM_AMOUNT` EOFs antes de procesar el resultado. Una vez recibidos, calcula un top parcial de `TOP_SIZE` frutas y lo envía al Join, seguido de un mensaje EOF.
+
+## Coordinación del Join
+
+El Join recibe los tops parciales de todas las instancias de Aggregation. Cuenta los EOFs por cliente y espera `AGGREGATION_AMOUNT` EOFs antes de calcular el top final. El resultado se envía al Gateway incluyendo el `client_id` para que pueda ser entregado al cliente que corresponde.
+
+## Escalabilidad
+
+### Respecto a los clientes
+
+Cada cliente recibe un `client_id` único que se propaga a través de todo el pipeline. Los componentes internos (Sum, Aggregation, Join) mantienen diccionarios indexados por `client_id`, lo que permite procesar múltiples consultas concurrentemente sin mezclar datos.
+
+### Respecto a la cantidad de controles
+
+- **Sum**: Se escala agregando más instancias que comparten la misma cola de entrada. RabbitMQ distribuye la carga automáticamente. El exchange de control asegura que todas las instancias se enteren del EOF independientemente de cuál lo reciba.
+- **Aggregation**: Se escala agregando más instancias, cada una con un routing key distinto. El criterio de distribución por letra garantiza que cada fruta sea procesada por un único Aggregator, evitando procesamiento redundante.
+- **Join**: Es un componente singular que consolida los tops parciales de todos los Aggregators.
+
+# Enunciado
+
 En este trabajo se busca familiarizar a los estudiantes con los desafíos de la coordinación del trabajo y el control de la complejidad en sistemas distribuidos. Para tal fin se provee un esqueleto de un sistema de control de stock de una verdulería y un conjunto de escenarios de creciente grado de complejidad y distribución que demandarán mayor sofisticación en la comunicación de las partes involucradas.
 
 ## Ejecución
