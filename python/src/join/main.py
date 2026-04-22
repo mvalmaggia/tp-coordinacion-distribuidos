@@ -1,5 +1,6 @@
 import os
 import logging
+import signal
 
 from common import middleware, message_protocol, fruit_item
 
@@ -55,15 +56,15 @@ class JoinFilter:
 
         logging.info(f"All fruits received for client {client_id}: {[ (item.fruit, item.amount) for item in self.fruits_by_client[client_id] ]}")
         # Ordeno las frutas por cantidad, de mayor a menor
-        self.fruits_by_client[client_id].sort(key=lambda item: item.amount, reverse=True)
-        # self.all_fruits.sort(key=lambda item: item.amount, reverse=True)
+        self.fruits_by_client[client_id].sort(reverse=True)
+        # self.all_fruits.sort(reverse=True)
         final_top_items = self.fruits_by_client[client_id][:TOP_SIZE]
         
         final_top = [(item.fruit, item.amount) for item in final_top_items]
         logging.info(f"Final top fruits: {final_top} for client {client_id}")
 
         self.output_queue.send(
-            message_protocol.internal.serialize(final_top)
+            message_protocol.internal.serialize([client_id, final_top])
         )
 
         del self.fruits_by_client[client_id]
@@ -75,6 +76,14 @@ class JoinFilter:
 def main():
     logging.basicConfig(level=logging.INFO)
     join_filter = JoinFilter()
+
+    def handle_sigterm(signum, frame):
+        logging.info("Received SIGTERM signal")
+        join_filter.input_queue.stop_consuming()
+        join_filter.input_queue.close()
+        join_filter.output_queue.close()
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
     join_filter.start()
 
     return 0
