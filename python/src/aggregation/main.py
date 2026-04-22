@@ -42,19 +42,6 @@ class AggregationFilter:
                 return
         bisect.insort(client_list, fruit_item.FruitItem(fruit, int(amount)))
 
-
-    def _process_eof(self, client_id):
-        logging.info("Received EOF")
-        fruit_chunk = list(self.fruit_top_by_client[client_id][-TOP_SIZE:])
-        fruit_chunk.reverse()
-        fruit_top = list(
-            map(
-                lambda fruit_item: (fruit_item.fruit, fruit_item.amount),
-                fruit_chunk,
-            )
-        )
-        self.output_queue.send(message_protocol.internal.serialize(client_id, fruit_top))
-
     def _process_eof(self, client_id):
         logging.info(f"Received all EOFs for client {client_id}. Sending top fruits.")
         fruit_chunk = list(self.fruit_top_by_client[client_id][-TOP_SIZE:])
@@ -65,8 +52,8 @@ class AggregationFilter:
                 fruit_chunk,
             )
         )
-        self.output_queue.send(message_protocol.internal.serialize(fruit_top))
-        self.output_queue.send(message_protocol.internal.serialize([]))
+        self.output_queue.send(message_protocol.internal.serialize([client_id, fruit_top]))
+        self.output_queue.send(message_protocol.internal.serialize([client_id]))
         
         del self.fruit_top_by_client[client_id]
         del self.eofs_received_by_client[client_id]

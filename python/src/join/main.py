@@ -30,25 +30,29 @@ class JoinFilter:
         logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
         logging.info(f"Deserialized message: {fields}")
-        if len(fields) > 1:
-            self._process_data(fields)
+
+        if len(fields) == 2:
+            self._process_data(*fields)
         else:
             client_id = fields[0]
-            self.eofs_received_by_client[client_id] += 1
+            
+            self.eofs_received_by_client[client_id] = self.eofs_received_by_client.get(client_id, 0) + 1
             if self.eofs_received_by_client[client_id] == AGGREGATION_AMOUNT:
-                logging.info(f"Received all EOFs: {len(self.eofs_received_by_client)}")
+                logging.info(f"Received all EOFs for client {client_id}. Processing final top fruits.")
                 self._process_eof(client_id)
         ack()
 
     def _process_data(self, client_id, fruit_top):
         logging.info("Process data: {fruit_top}")
-        # for fruit, amount in fruit_top:
-        #     self.all_fruits.append(fruit_item.FruitItem(fruit, amount))
-   
+        if client_id not in self.fruits_by_client:
+            self.fruits_by_client[client_id] = []
+
+        for fruit, amount in fruit_top:
+            self.fruits_by_client[client_id].append(fruit_item.FruitItem(fruit, amount))
 
     def _process_eof(self, client_id):
         logging.info(f"Processing EOF for client {client_id}")
-        logging.info("Sending data messages")
+
         # Ordeno las frutas por cantidad, de mayor a menor
         self.fruits_by_client[client_id].sort(key=lambda item: item.amount, reverse=True)
         # self.all_fruits.sort(key=lambda item: item.amount, reverse=True)
@@ -56,11 +60,13 @@ class JoinFilter:
         
         final_top = [(item.fruit, item.amount) for item in final_top_items]
         logging.info(f"Final top fruits: {final_top}")
+
         self.output_queue.send(
             message_protocol.internal.serialize(final_top)
         )
 
-        self.input_queue.stop_consuming()
+        del self.fruits_by_client[client_id]
+        del self.eofs_received_by_client[client_id]
     
     def start(self):
         self.input_queue.start_consuming(self.process_messsage)
