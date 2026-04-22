@@ -29,7 +29,7 @@ class AggregationFilter:
         self.eofs_received_by_client = {}
 
     def _process_data(self, client_id, fruit, amount):
-        # logging.info(f"Processing data message from client {client_id}")
+        logging.info(f"Processing data message from client {client_id}")
         if client_id not in self.fruit_top_by_client:
             self.fruit_top_by_client[client_id] = []
         
@@ -46,7 +46,6 @@ class AggregationFilter:
     def _process_eof(self, client_id):
         logging.info(f"Received all EOFs for client {client_id}. Sending top fruits.")
         self.fruit_top_by_client[client_id].sort(reverse=True)
-        logging.info(f"All fruits received for client {client_id}: {[ (item.fruit, item.amount) for item in self.fruit_top_by_client[client_id] ]}")
         fruit_chunk = self.fruit_top_by_client[client_id][:TOP_SIZE]
         
         fruit_top = list(
@@ -55,7 +54,6 @@ class AggregationFilter:
                 fruit_chunk,
             )
         )
-        logging.info(f"Top fruits for client {client_id}: {fruit_top}")
         self.output_queue.send(message_protocol.internal.serialize([client_id, fruit_top]))
         self.output_queue.send(message_protocol.internal.serialize([client_id]))
         
@@ -63,9 +61,8 @@ class AggregationFilter:
         del self.eofs_received_by_client[client_id]
 
     def process_messsage(self, message, ack, nack):
-        # logging.info("Process message")
+        logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
-        # logging.info(f"Deserialized message: {fields}")
         if len(fields) == 3:
             self._process_data(*fields)
         else:

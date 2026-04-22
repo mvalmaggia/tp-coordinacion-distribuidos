@@ -37,7 +37,7 @@ class SumFilter:
         self.eof_handled_by_client = {}
 
     def _process_data(self, client_id, fruit, amount):
-        # logging.info(f"Process data for client {client_id}")
+        logging.info(f"Process data for client {client_id}")
         fruit = fruit.lower()
 
         if client_id not in self.client_amounts:
@@ -50,7 +50,7 @@ class SumFilter:
             client_dict[fruit] = fruit_item.FruitItem(fruit, int(amount))
 
     def _process_eof(self, client_id):
-        # logging.info(f"Routing data messages")
+        logging.info(f"Routing data messages")
 
         if client_id in self.client_amounts:
             client_fruits = self.client_amounts[client_id]
@@ -70,7 +70,7 @@ class SumFilter:
             
             del self.client_amounts[client_id]
 
-        # logging.info(f"Broadcasting EOF message for client {client_id}")
+        logging.info(f"Broadcasting EOF message for client {client_id}")
         for i in range(AGGREGATION_AMOUNT):
             self.data_output_exchange.send(
                 message_protocol.internal.serialize([client_id]),
@@ -80,7 +80,6 @@ class SumFilter:
 
     def process_data_messsage(self, message, ack, nack):
         fields = message_protocol.internal.deserialize(message)
-        # logging.info(f"Deserialized message: {fields}")
         with self.lock:
             if len(fields) == 3:
                 client_id, fruit, amount = fields
