@@ -53,13 +53,14 @@ class JoinFilter:
     def _process_eof(self, client_id):
         logging.info(f"Processing EOF for client {client_id}")
 
+        logging.info(f"All fruits received for client {client_id}: {[ (item.fruit, item.amount) for item in self.fruits_by_client[client_id] ]}")
         # Ordeno las frutas por cantidad, de mayor a menor
         self.fruits_by_client[client_id].sort(key=lambda item: item.amount, reverse=True)
         # self.all_fruits.sort(key=lambda item: item.amount, reverse=True)
         final_top_items = self.fruits_by_client[client_id][:TOP_SIZE]
         
         final_top = [(item.fruit, item.amount) for item in final_top_items]
-        logging.info(f"Final top fruits: {final_top}")
+        logging.info(f"Final top fruits: {final_top} for client {client_id}")
 
         self.output_queue.send(
             message_protocol.internal.serialize(final_top)

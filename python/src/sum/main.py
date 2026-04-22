@@ -31,19 +31,19 @@ class SumFilter:
         self.eof_handled_by_client = {}
 
     def _process_data(self, client_id, fruit, amount):
-        logging.info(f"Process data for client {client_id}")
+        # logging.info(f"Process data for client {client_id}")
         
         if client_id not in self.client_amounts:
             self.client_amounts[client_id] = {}
 
         client_dict = self.client_amounts[client_id]
-        if fruit in client_dict:
+        if fruit in client_dict.keys():
             client_dict[fruit].amount += int(amount)
         else:
             client_dict[fruit] = fruit_item.FruitItem(fruit, int(amount))
 
     def _process_eof(self, client_id):
-        logging.info(f"Routing data messages")
+        # logging.info(f"Routing data messages")
         data_output_exchanges = []
         for i in range(AGGREGATION_AMOUNT):
             exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
@@ -58,7 +58,7 @@ class SumFilter:
                 letter_number = ord(first_letter) - ord('a')
 
                 target_idx = letter_number % AGGREGATION_AMOUNT
-            
+                # logging.info(f"Sending data message for client {client_id}, fruit {fruit_item.fruit}, amount {fruit_item.amount} to exchange {AGGREGATION_PREFIX}_{target_idx}")
                 target_exchange = data_output_exchanges[target_idx]
                 target_exchange.send(
                     message_protocol.internal.serialize(
@@ -68,22 +68,20 @@ class SumFilter:
             
             del self.client_amounts[client_id]
 
-        logging.info(f"Broadcasting EOF message for client {client_id}")
+        # logging.info(f"Broadcasting EOF message for client {client_id}")
         for data_output_exchange in data_output_exchanges:
             data_output_exchange.send(message_protocol.internal.serialize([client_id]))
 
 
     def process_data_messsage(self, message, ack, nack):
         fields = message_protocol.internal.deserialize(message)
-        logging.info(f"Deserialized message: {fields}")
+        # logging.info(f"Deserialized message: {fields}")
         with self.lock:
             if len(fields) == 3:
                 client_id, fruit, amount = fields
-                if self.eof_handled_by_client.get(client_id, False):
-                    logging.info(f"Received data for finished client {client_id}. Ignoring.")
-                    ack()
-                    return
+                
                 self._process_data(client_id, fruit, amount)
+
             elif len(fields) == 1:
                 client_id = fields[0]
                 self.control_exchange.send(message_protocol.internal.serialize([client_id]))
